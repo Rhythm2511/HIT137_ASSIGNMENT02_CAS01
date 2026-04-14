@@ -1,7 +1,7 @@
 def encrypt_char(c, shift1, shift2):
     if c.islower():
         if 'a' <= c <= 'm':
-            return chr((ord(c) - ord('a') + shift1 * shift2) % 26 + ord('a'))
+            return chr((ord(c) - ord('a') + (shift1 * shift2)) % 26 + ord('a'))
         elif 'n' <= c <= 'z':
             return chr((ord(c) - ord('a') - (shift1 + shift2)) % 26 + ord('a'))
     elif c.isupper():
@@ -14,8 +14,8 @@ def encrypt_char(c, shift1, shift2):
 def decrypt_char(c_enc, shift1, shift2):
     if c_enc.islower():
         c_val = ord(c_enc) - ord('a')
-        orig1 = (c_val - shift1 * shift2) % 26
-        orig2 = (c_val + shift1 + shift2) % 26
+        orig1 = (c_val - (shift1 * shift2)) % 26
+        orig2 = (c_val + (shift1 + shift2)) % 26
     
         if 0 <= orig1 <= 12:
             return chr(orig1 + ord('a'))
