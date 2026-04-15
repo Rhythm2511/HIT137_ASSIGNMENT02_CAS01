@@ -1,5 +1,5 @@
 import os
-import re
+
 
 # --- Token types ---
 TT_NUM    = "NUM"
@@ -116,139 +116,91 @@ def eval_node(node: dict) -> float:
     raise ValueError(f"Unknown node kind: {node['kind']}")
 
 
+def parse(tokens: list[tuple[str, str]]) -> dict:
+    """
+    REFACTORED: This replaces the '_Parser' class. 
+    We use a dictionary 'ctx' to track the position instead of 'self.pos'.
+    """
+    ctx = {"pos": 0}
 
-class _Parser:
-
-    def __init__(self, tokens: list[tuple[str, str]]):
-        self.tokens = tokens
-        self.pos    = 0
-
-    # helpers
-
-    def peek(self) -> tuple[str, str]:
-        return self.tokens[self.pos]
-
-    def consume(self) -> tuple[str, str]:
-        tok = self.tokens[self.pos]
-        self.pos += 1
+    def peek(): return tokens[ctx["pos"]]
+    def consume():
+        tok = tokens[ctx["pos"]]
+        ctx["pos"] += 1
+        return tok
+    def expect(ttype):
+        tok = consume()
+        if tok[0] != ttype: raise ValueError(f"Expected {ttype}, got {tok}")
         return tok
 
-    def expect(self, ttype: str) -> tuple[str, str]:
-        tok = self.consume()
-        if tok[0] != ttype:
-            raise ValueError(f"Expected {ttype}, got {tok}")
-        return tok
-
-    # grammar rules
-
-    def parse_expr(self) -> dict:
-        """expr → term (('+' | '-') term)*"""
-        left = self.parse_term()
-        while self.peek()[0] == TT_OP and self.peek()[1] in '+-':
-            op  = self.consume()[1]
-            right = self.parse_term()
+    # Grammar rules are now nested functions (no 'self' needed)
+    def parse_expr():
+        left = parse_term()
+        while peek()[0] == TT_OP and peek()[1] in '+-':
+            op  = consume()[1]
+            right = parse_term()
             left  = node_binop(op, left, right)
         return left
 
-    def parse_term(self) -> dict:
-        """term → implicit (('*' | '/') implicit)*"""
-        left = self.parse_implicit()
-        while self.peek()[0] == TT_OP and self.peek()[1] in '*/':
-            op    = self.consume()[1]
-            right = self.parse_implicit()
-            left  = node_binop(op, left, right)
+    def parse_term():
+        left = parse_implicit()
+        while peek()[0] == TT_OP and peek()[1] in '*/':
+            op = consume()[1]
+            right = parse_implicit()
+            left = node_binop(op, left, right)
         return left
 
-    def parse_implicit(self) -> dict:
-        """implicit → unary (unary)*  — implicit multiplication"""
-        left = self.parse_unary()
-        # A following unary can start with '-' (OP) or NUM or LPAREN
-        while self._starts_unary():
-            right = self.parse_unary()
-            left  = node_binop('*', left, right)
+    def parse_implicit():
+        left = parse_unary()
+        while peek()[0] in (TT_NUM, TT_LPAREN):
+            right = parse_unary()
+            left = node_binop('*', left, right)
         return left
 
-    def _starts_unary(self) -> bool:
-        """Return True if the next token starts a unary expression."""
-        tt, _ = self.peek()
-        return tt in (TT_NUM, TT_LPAREN)
-
-    def parse_unary(self) -> dict:
-        """unary → '-' unary  |  primary"""
-        tt, val = self.peek()
+    def parse_unary():
+        tt, val = peek()
         if tt == TT_OP and val == '-':
-            self.consume()
-            operand = self.parse_unary()
-            return node_neg(operand)
+            consume()
+            return node_neg(parse_unary())
         if tt == TT_OP and val == '+':
             raise ValueError("Unary '+' is not supported")
-        return self.parse_primary()
+        return parse_primary()
 
-    def parse_primary(self) -> dict:
-        """primary → NUM  |  '(' expr ')'"""
-        tt, val = self.peek()
+    def parse_primary():
+        tt, val = peek()
         if tt == TT_NUM:
-            self.consume()
+            consume()
             return node_num(float(val))
         if tt == TT_LPAREN:
-            self.consume()          # consume '('
-            node = self.parse_expr()
-            self.expect(TT_RPAREN)  # consume ')'
+            consume()
+            node = parse_expr()
+            expect(TT_RPAREN)
             return node
         raise ValueError(f"Unexpected token: {tt}:{val!r}")
 
-
-def parse(tokens: list[tuple[str, str]]) -> dict:
-    """Parse a list of tokens into an AST."""
-    parser = _Parser(tokens)
-    ast    = parser.parse_expr()
-    tt, _  = parser.peek()
-    if tt != TT_END:
-        raise ValueError(f"Unexpected token after expression: {parser.peek()}")
+    ast = parse_expr()
+    if peek()[0] != TT_END: raise ValueError("Unexpected token after expression")
     return ast
+           
 
 # --- Per-expression processing ---
 
 def process_expression(expr: str) -> dict:
-
-    result_dict = {
-        "input":  expr,
-        "tree":   "ERROR",
-        "tokens": "ERROR",
-        "result": "ERROR",
-    }
-
+    res = {"input": expr, "tree": "ERROR", "tokens": "ERROR", "result": "ERROR"}
     try:
         toks = tokenise(expr)
-    except ValueError:
-        return result_dict
+        parts = []
+        for tt, val in toks:
+            parts.append("[END]" if tt == TT_END else f"[{tt}:{val}]")
+        res["tokens"] = " ".join(parts)
 
-    result_dict["tokens"] = format_tokens(toks)
-
-    try:
-        ast    = parse(toks)
-        result_dict["tree"] = tree_to_str(ast)
-        value  = eval_node(ast)
-        result_dict["result"] = value
+        ast = parse(toks)
+         
+        res["tree"] = tree_to_str(ast)
+        res["result"] = eval_node(ast)
     except (ValueError, ZeroDivisionError):
-        result_dict["tree"]   = "ERROR"
-        result_dict["result"] = "ERROR"
-
-    return result_dict
-
-input_content = """
-1 + 2 * 3
-(4 + 5) / 2
--10 * 2
-3(4 + 5)
-6 / 0
-2 * (3 + 4)
-"""
-
-with open('input.txt', 'w') as f:
-    f.write(input_content)
-
-print("Created input.txt with sample expressions.")
+        pass
+    return res
 
 
 # --- Output formatting ---
@@ -304,7 +256,7 @@ def evaluate_file(input_path: str) -> list[dict]:
 
     return results
 
-results = evaluate_file('input.txt')
+results = evaluate_file('sample_input.txt')
 
 for res in results:
     print(f"Input: {res['input']}")
